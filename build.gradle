@@ -4,22 +4,15 @@ plugins {
 }
 
 group 'link.zamin'
-version '1.0-SNAPSHOT'
+version '1.0.0'
 
 repositories {
     mavenCentral()
 }
 
-ext {
-    junitVersion = '5.10.2'
-}
-
 sourceCompatibility = '1.8'
 targetCompatibility = '1.8'
 
-tasks.withType(JavaCompile) {
-    options.encoding = 'UTF-8'
-}
 
 [compileKotlin, compileTestKotlin].forEach {
     it.kotlinOptions {
@@ -29,11 +22,5 @@ tasks.withType(JavaCompile) {
 
 
 dependencies {
-
-    testImplementation("org.junit.jupiter:junit-jupiter-api:${junitVersion}")
-    testRuntimeOnly("org.junit.jupiter:junit-jupiter-engine:${junitVersion}")
-}
-
-test {
-    useJUnitPlatform()
+    implementation("joda-time:joda-time:2.3")
 }
