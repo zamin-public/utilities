@@ -1,5 +1,9 @@
 package link.zamin.base.utility
 
+import com.google.gson.*
+import org.bson.types.ObjectId
+import java.lang.reflect.Type
+
 object GsonUtils {
     private val gsonBuilder = GsonBuilder()
         .setDateFormat("yyyy-MM-dd'T'HH:mm:ssZ")

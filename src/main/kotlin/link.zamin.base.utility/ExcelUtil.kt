@@ -1,5 +1,14 @@
 package link.zamin.base.utility
 
+import link.zamin.base.model.dto.ExcelData
+import link.zamin.base.model.dto.RowData
+import link.zamin.base.model.dto.SheetData
+import org.apache.poi.ss.usermodel.CellType
+import org.apache.poi.ss.usermodel.Row
+import org.apache.poi.xssf.usermodel.XSSFWorkbook
+import java.io.File
+import java.io.InputStream
+
 object ExcelUtil {
 
     fun parseData(file: File): ExcelData {
@@ -8,8 +17,8 @@ object ExcelUtil {
         return parseData(workbook)
     }
 
-    fun parseData(file: MultipartFile): ExcelData {
-        val workbook = XSSFWorkbook(file.inputStream)
+    fun parseData(file: InputStream): ExcelData {
+        val workbook = XSSFWorkbook(file)
 
         return parseData(workbook)
     }
