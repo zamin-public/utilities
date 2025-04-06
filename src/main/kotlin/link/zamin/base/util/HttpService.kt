@@ -1,10 +1,19 @@
 package link.zamin.base.util
 
 
+import com.fasterxml.jackson.databind.ObjectMapper
+import com.fasterxml.jackson.module.kotlin.KotlinModule
 import com.google.gson.Gson
-import com.google.gson.JsonArray
-import link.zamin.base.exceptions.Exceptions
+import link.zamin.base.exceptions.ThirdPartyServerException
+import org.apache.http.HttpEntity
+import org.apache.http.client.methods.CloseableHttpResponse
+import org.apache.http.client.methods.HttpPost
+import org.apache.http.entity.ContentType
+import org.apache.http.entity.mime.HttpMultipartMode
+import org.apache.http.entity.mime.MultipartEntityBuilder
+import org.apache.http.impl.client.HttpClientBuilder
 import java.io.DataOutputStream
+import java.io.File
 import java.net.HttpURLConnection
 import java.net.Socket
 import java.net.URL
@@ -13,7 +22,6 @@ import java.security.cert.CertificateException
 import java.security.cert.X509Certificate
 import java.util.logging.Logger
 import javax.net.ssl.*
-
 
 object HttpService {
 
@@ -60,19 +68,19 @@ object HttpService {
         return sc
     }
 
-    fun httpsHeadRequestSync(url: URL): HttpsURLConnection {
+    fun headRequestSync(url: URL): HttpsURLConnection {
         val http: HttpsURLConnection = url.openConnection() as HttpsURLConnection
         http.requestMethod = "HEAD"
         http.disconnect()
         return http
     }
 
-    fun <T> httpsGetRequestSync(
+    fun <T> getRequestSync(
         url: String,
         queries: Map<String, String> = emptyMap(),
         headers: Map<String, String> = emptyMap(),
         responseClass: Class<T>,
-        readTimeOut: Int = 3000
+        readTimeOut: Int = 10000
     ): T {
         val urlWithQuery = StringBuilder(url)
         if (queries.isNotEmpty()) {
@@ -83,7 +91,11 @@ object HttpService {
             }
         }
         try {
-            with((URL(urlWithQuery.toString()).openConnection() as HttpsURLConnection).apply {
+            val connection = if (url.contains("https"))
+                (URL(urlWithQuery.toString()).openConnection() as HttpsURLConnection)
+            else
+                (URL(urlWithQuery.toString()).openConnection() as HttpURLConnection)
+            with((connection).apply {
                 headers.forEach {
                     setRequestProperty(it.key, it.value)
                 }
@@ -97,74 +109,35 @@ object HttpService {
                 when (responseCode) {
                     in listOf(200, 201) -> {
                         inputStream.bufferedReader().use { bufferReader ->
-                            bufferReader.lines().findFirst().get().let { line ->
+                            bufferReader.lines().toArray().toList().joinToString("").let { line ->
                                 return Gson().fromJson(line, responseClass)
                             }
                         }
                     }
 
                     else -> {
-                        Logger.getLogger(this.javaClass.name).severe("$url GET exception: response error $responseCode")
-                        throw Exceptions("$url GET exception: response error $responseCode")
+                        Logger.getLogger(this.javaClass.name).severe(
+                            "$url GET exception: response error $responseCode, msg: ${
+                                errorStream.bufferedReader().lines().toArray().toList().joinToString("")
+                            }"
+                        )
+                        throw ThirdPartyServerException(
+                            "$url GET exception: response error $responseCode, msg: ${
+                                errorStream.bufferedReader().lines().toArray().toList().joinToString("")
+                            }"
+                        )
                     }
                 }
             }
         } catch (ex: Exception) {
-            if (ex is Exceptions)
+            if (ex is ThirdPartyServerException)
                 throw ex
             Logger.getLogger(this.javaClass.name).severe("$url GET exception: ${ex.message}")
-            throw Exceptions("$url GET exception: ${ex.message}")
+            throw ThirdPartyServerException("$url GET exception: ${ex.message}")
         }
     }
 
-    fun httpGetRequestSync(
-        url: String,
-        queries: Map<String, String> = emptyMap(),
-        headers: Map<String, String> = emptyMap(),
-        readTimeOut: Int = 3000
-    ): List<String> {
-        val urlWithQuery = StringBuilder(url)
-        if (queries.isNotEmpty()) {
-            urlWithQuery.append("?")
-            queries.forEach {
-                urlWithQuery.append("${it.key}=${it.value}")
-                urlWithQuery.append("&")
-            }
-        }
-        try {
-            with((URL(urlWithQuery.toString()).openConnection() as HttpURLConnection).apply {
-                headers.forEach {
-                    setRequestProperty(it.key, it.value)
-                }
-                setRequestProperty(
-                    "Content-Type",
-                    "application/json"
-                )
-                requestMethod = "GET"
-                readTimeout = readTimeOut
-            }) {
-                when (responseCode) {
-                    in listOf(200, 201) -> {
-                        inputStream.bufferedReader().use { bufferReader ->
-                            return bufferReader.readLines()
-                        }
-                    }
-
-                    else -> {
-                        Logger.getLogger(this.javaClass.name).severe("$url GET exception: response error $responseCode")
-                        throw Exceptions("$url GET exception: response error $responseCode")
-                    }
-                }
-            }
-        } catch (ex: Exception) {
-            if (ex is Exceptions)
-                throw ex
-            Logger.getLogger(this.javaClass.name).severe("$url GET exception: ${ex.message}")
-            throw Exceptions("$url GET exception: ${ex.message}")
-        }
-    }
-
-    fun <T> httpsPostRequestSync(
+    fun <T> postRequestSync(
         url: String,
         headers: Map<String, String> = emptyMap(),
         requestBody: List<String> = emptyList(),
@@ -188,11 +161,12 @@ object HttpService {
                 requestMethod = "POST"
                 doOutput = true
                 readTimeout = readTimeOut
-                val out = JsonArray().apply {
-                    requestBody.forEach {
-                        add(it)
-                    }
-                }
+
+                // Create ObjectMapper and register Kotlin module
+                val objectMapper = ObjectMapper().registerModule(KotlinModule())
+
+                // Serialize to JSON
+                val out = objectMapper.writeValueAsString(requestBody)
 
                 DataOutputStream(outputStream).use { wr -> wr.write(out.toString().toByteArray()) }
             }) {
@@ -213,20 +187,28 @@ object HttpService {
 
                     else -> {
                         Logger.getLogger(this.javaClass.name)
-                            .severe("$url POST exception: response error $responseCode")
-                        throw Exceptions("$url POST exception: response error $responseCode")
+                            .severe(
+                                "$url POST exception: response error $responseCode, msg: ${
+                                    errorStream.bufferedReader().lines().toArray().toList().joinToString("")
+                                }"
+                            )
+                        throw ThirdPartyServerException(
+                            "$url POST exception: response error $responseCode, msg: ${
+                                errorStream.bufferedReader().lines().toArray().toList().joinToString("")
+                            }"
+                        )
                     }
                 }
             }
         } catch (ex: Exception) {
-            if (ex is Exceptions)
+            if (ex is ThirdPartyServerException)
                 throw ex
             Logger.getLogger(this.javaClass.name).severe("$url POST exception: ${ex.message}")
-            throw Exceptions("$url POST exception: ${ex.message}")
+            throw ThirdPartyServerException("$url POST exception: ${ex.message}")
         }
     }
 
-    fun <T> httpsDeleteRequestSync(
+    fun <T> deleteRequestSync(
         url: String,
         headers: Map<String, String> = emptyMap(),
         requestBody: List<String> = emptyList(),
@@ -250,11 +232,12 @@ object HttpService {
                 requestMethod = "DELETE"
                 doOutput = true
                 readTimeout = readTimeOut
-                val out = JsonArray().apply {
-                    requestBody.forEach {
-                        add(it)
-                    }
-                }
+
+                // Create ObjectMapper and register Kotlin module
+                val objectMapper = ObjectMapper().registerModule(KotlinModule())
+
+                // Serialize to JSON
+                val out = objectMapper.writeValueAsString(requestBody)
 
                 DataOutputStream(outputStream).use { wr -> wr.write(out.toString().toByteArray()) }
             }) {
@@ -275,16 +258,129 @@ object HttpService {
 
                     else -> {
                         Logger.getLogger(this.javaClass.name)
-                            .severe("$url DELETE exception: response error $responseCode")
-                        throw Exceptions("$url DELETE exception: response error $responseCode")
+                            .severe(
+                                "$url DELETE exception: response error $responseCode, msg: ${
+                                    errorStream.bufferedReader().lines().toArray().toList().joinToString("")
+                                }"
+                            )
+                        throw ThirdPartyServerException(
+                            "$url DELETE exception: response error $responseCode, msg: ${
+                                errorStream.bufferedReader().lines().toArray().toList().joinToString("")
+                            }"
+                        )
                     }
                 }
             }
         } catch (ex: Exception) {
-            if (ex is Exceptions)
+            if (ex is ThirdPartyServerException)
                 throw ex
             Logger.getLogger(this.javaClass.name).severe("$url DELETE exception: ${ex.message}")
-            throw Exceptions("$url DELETE exception: ${ex.message}")
+            throw ThirdPartyServerException("$url DELETE exception: ${ex.message}")
+        }
+    }
+
+    fun <T> postRequestSync(
+        url: String,
+        headers: Map<String, String> = emptyMap(),
+        requestBody: Any,
+        responseClass: Class<T>,
+        readTimeOut: Int = 3000
+    ): T? {
+        try {
+            val connection = if (url.contains("https"))
+                (URL(url).openConnection() as HttpsURLConnection)
+            else
+                (URL(url).openConnection() as HttpURLConnection)
+
+            with(connection.apply {
+                headers.forEach {
+                    setRequestProperty(it.key, it.value)
+                }
+                setRequestProperty(
+                    "Content-Type",
+                    "application/json"
+                )
+                requestMethod = "POST"
+                doOutput = true
+                readTimeout = readTimeOut
+
+                // todo: refactor all POST, PUT methods with this lines
+                // Create ObjectMapper and register Kotlin module
+                val objectMapper = ObjectMapper().registerModule(KotlinModule())
+
+                // Serialize to JSON
+                val out = objectMapper.writeValueAsString(requestBody)
+
+                DataOutputStream(outputStream).use { wr -> wr.write(out.toByteArray()) }
+            }) {
+                when (responseCode) {
+                    in listOf(200, 201) -> {
+                        inputStream.bufferedReader().use { bufferReader ->
+                            bufferReader.lines().findFirst().get().let { line ->
+                                return try {
+                                    Gson().fromJson(line, responseClass)
+                                } catch (ex: Exception) {
+                                    Logger.getLogger(this.javaClass.name)
+                                        .warning("$url POST exception: can not read response: $line")
+                                    null
+                                }
+                            }
+                        }
+                    }
+
+                    else -> {
+                        Logger.getLogger(this.javaClass.name)
+                            .severe(
+                                "$url POST exception: response error $responseCode, msg: ${
+                                    errorStream.bufferedReader().lines().toArray().toList().joinToString("")
+                                }"
+                            )
+                        throw ThirdPartyServerException(
+                            "$url POST exception: response error $responseCode, msg: ${
+                                errorStream.bufferedReader().lines().toArray().toList().joinToString("")
+                            }"
+                        )
+                    }
+                }
+            }
+        } catch (ex: Exception) {
+            if (ex is ThirdPartyServerException)
+                throw ex
+            Logger.getLogger(this.javaClass.name).severe("$url POST exception: ${ex.message}")
+            throw ThirdPartyServerException("$url POST exception: ${ex.message}")
+        }
+    }
+
+    fun multipartSingleFileRequest(
+        url: URL,
+        authorization: String? = null,
+        queries: Map<String, String>? = null,
+        file: File,
+        fieldName: String
+    ): CloseableHttpResponse? {
+        try {
+            val urlWithQuery = StringBuilder(url.toString())
+            queries?.let {
+                urlWithQuery.append("?")
+                queries.forEach {
+                    urlWithQuery.append("${it.key}=${it.value}")
+                    urlWithQuery.append("&")
+                }
+            }
+            val post = HttpPost(urlWithQuery.toString())
+            post.addHeader(
+                "Authorization", authorization
+            )
+            val builder = MultipartEntityBuilder.create()
+            builder.setMode(HttpMultipartMode.BROWSER_COMPATIBLE)
+            builder.addBinaryBody(fieldName, file, ContentType.DEFAULT_BINARY, file.name)
+            val entity: HttpEntity = builder.build()
+            post.entity = entity
+            val client = HttpClientBuilder.create().build();
+            return client.execute(post)
+        } catch (ex: Exception) {
+            Logger.getLogger(this.javaClass.name).severe("error in sending file: ${ex.message}")
+            return null
         }
     }
 }
