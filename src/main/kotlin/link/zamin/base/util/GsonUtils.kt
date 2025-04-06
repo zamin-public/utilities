@@ -1,4 +1,4 @@
-package link.zamin.base.utility
+package link.zamin.base.util
 
 import com.google.gson.*
 import org.bson.types.ObjectId

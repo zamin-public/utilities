@@ -1,4 +1,4 @@
-package link.zamin.base.utility
+package link.zamin.base.util
 
 
 import org.joda.time.DateTime
@@ -8,8 +8,10 @@ import java.util.*
 
 
 object DateConverter {
+
     private val persianCal: Calendar = GregorianCalendar.getInstance(TimeZone.getTimeZone("Asia/Tehran"))
     private val calendar = Calendar.getInstance()
+
     fun getJalaliText(date: Long): String {
 
         val gregorianDate = Date(date)
