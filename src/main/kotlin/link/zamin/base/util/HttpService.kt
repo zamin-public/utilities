@@ -294,6 +294,86 @@ object HttpService {
         }
     }
 
+    fun <T> postRequestSync(
+        url: String,
+        headers: Map<String, String> = emptyMap(),
+        requestBody: Any,
+        responseClass: Class<T>,
+        readTimeOut: Int = 3000,
+        isLenient: Boolean = false
+    ): T? {
+        try {
+            val connection = if (url.contains("https"))
+                (URL(url).openConnection() as HttpsURLConnection)
+            else
+                (URL(url).openConnection() as HttpURLConnection)
+
+            with(connection.apply {
+                headers.forEach {
+                    setRequestProperty(it.key, it.value)
+                }
+                setRequestProperty(
+                    "Content-Type",
+                    "application/json"
+                )
+                requestMethod = "POST"
+                doOutput = true
+                readTimeout = readTimeOut
+
+                // todo: refactor all POST, PUT methods with this lines
+                // Create ObjectMapper and register Kotlin module
+                val objectMapper = ObjectMapper().registerModule(KotlinModule())
+
+                // Serialize to JSON
+                val out = objectMapper.writeValueAsString(requestBody)
+
+                DataOutputStream(outputStream).use { wr -> wr.write(out.toByteArray()) }
+            }) {
+                when (responseCode) {
+                    in listOf(200, 201) -> {
+                        inputStream.bufferedReader().use { bufferReader ->
+                            bufferReader.lines().findFirst().get().let { line ->
+                                return try {
+                                    val gson = Gson()
+                                    return if (isLenient) {
+                                        val reader = JsonReader(StringReader(line))
+                                        reader.setStrictness(Strictness.LENIENT)
+                                        gson.fromJson(reader, responseClass)
+                                    } else {
+                                        Gson().fromJson(line, responseClass)
+                                    }
+                                } catch (ex: Exception) {
+                                    Logger.getLogger(this.javaClass.name)
+                                        .warning("$url POST exception: can not read response: $line")
+                                    null
+                                }
+                            }
+                        }
+                    }
+
+                    else -> {
+                        Logger.getLogger(this.javaClass.name)
+                            .severe(
+                                "$url POST exception: response error $responseCode, msg: ${
+                                    errorStream.bufferedReader().lines().toArray().toList().joinToString("")
+                                }"
+                            )
+                        throw ThirdPartyServerException(
+                            "$url POST exception: response error $responseCode, msg: ${
+                                errorStream.bufferedReader().lines().toArray().toList().joinToString("")
+                            }"
+                        )
+                    }
+                }
+            }
+        } catch (ex: Exception) {
+            if (ex is ThirdPartyServerException)
+                throw ex
+            Logger.getLogger(this.javaClass.name).severe("$url POST exception: ${ex.message}")
+            throw ThirdPartyServerException("$url POST exception: ${ex.message}")
+        }
+    }
+
     fun multipartSingleFileRequest(
         url: URL,
         authorization: String? = null,
