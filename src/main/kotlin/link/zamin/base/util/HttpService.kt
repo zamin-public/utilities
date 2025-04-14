@@ -1,8 +1,7 @@
 package link.zamin.base.util
 
 
-import com.fasterxml.jackson.databind.ObjectMapper
-import com.fasterxml.jackson.module.kotlin.KotlinModule
+import com.fasterxml.jackson.module.kotlin.jacksonObjectMapper
 import com.google.gson.Gson
 import com.google.gson.Strictness
 import com.google.gson.stream.JsonReader
@@ -171,7 +170,7 @@ object HttpService {
                 readTimeout = readTimeOut
 
                 // Create ObjectMapper and register Kotlin module
-                val objectMapper = ObjectMapper().registerModule(KotlinModule())
+                val objectMapper = jacksonObjectMapper()
 
                 // Serialize to JSON
                 val out = objectMapper.writeValueAsString(requestBody)
@@ -249,7 +248,7 @@ object HttpService {
                 readTimeout = readTimeOut
 
                 // Create ObjectMapper and register Kotlin module
-                val objectMapper = ObjectMapper().registerModule(KotlinModule())
+                val objectMapper = jacksonObjectMapper()
 
                 // Serialize to JSON
                 val out = objectMapper.writeValueAsString(requestBody)
@@ -322,7 +321,7 @@ object HttpService {
 
                 // todo: refactor all POST, PUT methods with this lines
                 // Create ObjectMapper and register Kotlin module
-                val objectMapper = ObjectMapper().registerModule(KotlinModule())
+                val objectMapper = jacksonObjectMapper()
 
                 // Serialize to JSON
                 val out = objectMapper.writeValueAsString(requestBody)
